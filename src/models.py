@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from collections import OrderedDict
-from .utils import try_gpu
+from src.utils import try_gpu
 
 
 class Flatten(nn.Module):
@@ -11,8 +11,20 @@ class Flatten(nn.Module):
         super(Flatten, self).__init__()
 
     def forward(self, x):
-        N = x.shape[0] # read in N, C, H, W
-        return x.view(N, -1)  # "flatten" the C * H * W values into a single vector per image
+        """[summary]
+
+        Arguments:
+            x {[type]} -- a float tensor with shape [batch_size, c, h, w].
+
+        Returns:
+            [type] -- a float tensor with shape [batch_size, c*h*w].
+        """
+
+        # without this pretrained model isn't working
+        x = x.transpose(3, 2).contiguous()
+
+        # "flatten" the C * H * W values into a single vector per image
+        return x.view(x.size(0), -1)
 
 
 class _Net(nn.Module):
@@ -53,14 +65,15 @@ class PNet(_Net):
     bbox_offset.conv4_2.weight       torch.Size([4, 32, 1, 1])
     bbox_offset.conv4_2.bias         torch.Size([4])
     """
+
     def __init__(self, **kwargs):
         super(PNet, self).__init__(**kwargs)
-        
+
     def _init_net(self):
-        self.backend = nn.Sequential(OrderedDict([    
+        self.backend = nn.Sequential(OrderedDict([
             ('conv1', nn.Conv2d(3, 10, kernel_size=3, stride=1)),
-            ('prelu1', nn.PReLU(10)),            
-            ('pool1', nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True)), 
+            ('prelu1', nn.PReLU(10)),
+            ('pool1', nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True)),
 
             ('conv2', nn.Conv2d(10, 16, kernel_size=3, stride=1)),
             ('prelu2', nn.PReLU(16)),
@@ -79,13 +92,16 @@ class PNet(_Net):
         ]))
 
     def forward(self, x):
-        """
+        """[summary]
+
         Arguments:
-            x: a float tensor with shape [batch_size, 3, h, w].
+            x {[type]} -- a float tensor with shape [batch_size, 3, h, w].
+
         Returns:
-            cls_prob: a float tensor with shape [batch_size, 2, h, w].
-            offset: a float tensor with shape [batch_size, 4, h, w].
+            cls_probs {[type]} -- a float tensor with shape [batch_size, 2, h, w].
+            offsets {[type]} -- a float tensor with shape [batch_size, 4, h, w].
         """
+
         feature_map = self.backend(x)
 
         # face classification
@@ -117,6 +133,7 @@ class RNet(_Net):
     bbox_offset.conv5_2.weight       torch.Size([4, 128])
     bbox_offset.conv5_2.bias         torch.Size([4])
     """
+
     def __init__(self, **kwargs):
         super(RNet, self).__init__(**kwargs)
 
@@ -149,13 +166,16 @@ class RNet(_Net):
         ]))
 
     def forward(self, x):
-        """
+        """[summary]
+
         Arguments:
-            x: a float tensor with shape [batch_size, 3, h, w].
+            x {[type]} -- a float tensor with shape [batch_size, 3, h, w].
+
         Returns:
-            b: a float tensor with shape [batch_size, 4].
-            a: a float tensor with shape [batch_size, 2].
+            cls_probs {[type]} -- a float tensor with shape [batch_size, 2].
+            offsets {[type]} -- a float tensor with shape [batch_size, 4].
         """
+
         feature_map = self.backend(x)
 
         # face classification
@@ -192,6 +212,7 @@ class ONet(_Net):
     landmarks.conv6_3.weight         torch.Size([10, 256])
     landmarks.conv6_3.bias   torch.Size([10])
     """
+
     def __init__(self, **kwargs):
         super(ONet, self).__init__(**kwargs)
 
@@ -232,6 +253,17 @@ class ONet(_Net):
         ]))
 
     def forward(self, x):
+        """[summary]
+
+        Arguments:
+            x {[type]} -- a float tensor with shape [batch_size, 3, h, w].
+
+        Returns:
+            cls_probs {[type]} -- a float tensor with shape [batch_size, 2].
+            offsets {[type]} -- a float tensor with shape [batch_size, 4].
+            landmarks {[type]} -- a float tensor with shape [batch_size, 10].
+        """
+
         feature_map = self.backend(x)
 
         # face classification
@@ -244,29 +276,3 @@ class ONet(_Net):
         landmarks = self.landmarks(feature_map)
 
         return cls_probs, offsets, landmarks
-
-
-if __name__ == "__main__":
-    pnet = PNet(is_training=True, device=try_gpu())
-
-
-    # states_to_load = np.load('../weights/pnet.npy', allow_pickle=True)[()]
-
-    # print(type(states_to_load))
-
-    
-    # model_state = rnet.state_dict()
-    # model_state.update(states_to_load)
-
-    #rnet.load_state_dict(model_state)
-
-    #print("Model's state_dict:")
-    #for param_tensor in rnet.state_dict():
-    #    print(param_tensor, "\t", rnet.state_dict()[param_tensor].size())
-
-    # pnet_base = PNet_base()
-
-    #if torch.equal(pnet.features.conv1.weight, pnet_base.features.conv1.weight):
-    #    print("equal")
-    #print(pnet.features.conv1.bias)
-    #print(pnet_base.features.conv1.bias

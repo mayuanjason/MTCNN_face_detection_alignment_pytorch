@@ -1,40 +1,50 @@
-import torch
-import torch.nn.functional as F
-import torchvision
-import torchvision.transforms as transforms
-from PIL import Image
-import matplotlib.pyplot as plt
+import sys
+import os
+sys.path.append(os.pardir)
+
+from src.utils import try_gpu, set_figsize, show_bboxes
+from src.models import PNet, RNet, ONet
 import math
-from .models import PNet, RNet, ONet
-from .utils import try_gpu, set_figsize, show_bboxes
+import matplotlib.pyplot as plt
+from PIL import Image
+import torchvision.transforms as transforms
+import torchvision
+import torch.nn.functional as F
+import torch
+
+
+def _no_grad(func):
+    def wrapper(*args, **kwargs):
+        with torch.no_grad():
+            return func(*args, **kwargs)
+        
+    return wrapper
 
 
 class FaceDetector():
 
-    def __init__(self, min_face_size=20.0, threshold=[0.6, 0.7, 0.8], factor=0.707, nms_threshold=[0.7, 0.7, 0.7]):
+    def __init__(self):
         self.device = try_gpu()
 
-        self.pnet = PNet(device=self.device)
-        self.rnet = RNet(device=self.device)
-        self.onet = ONet(device=self.device)
+        # LOAD MODELS
+        self.pnet = PNet()
+        self.rnet = RNet()
+        self.onet = ONet()
 
         self.pnet.load('../weights/pnet.npy')
         self.rnet.load('../weights/rnet.npy')
-        self.onet.load('../weights/onet.npy')  # TBD need to check if weight is on GPU
-
-        self.min_face_size = min_face_size
-        self.threshold = threshold
-        self.factor = factor
-        self.nms_threshold = nms_threshold
-
+        # TBD need to check if weight is on GPU
+        self.onet.load('../weights/onet.npy')
 
     def _preprocess(self, img):
-        """
+        """Preprocessing step before feeding the network.
+
         Arguments:
-            img: string, image path.
+            img {[type]} -- a PIL.Image images of range [0, 1] 
+                            or an image path
 
         Returns:
-            a float tensor of shape [1, c, h, w].
+            [type] -- a float tensor of shape [1, C, H, W] in the range [0.0, 1.0]
         """
 
         if isinstance(img, str):
@@ -43,9 +53,10 @@ class FaceDetector():
         # The output of torchvision datasets are PILImage images of range [0, 1]. We transform them to Tensors of normalized range [-1, 1].
         transform = transforms.Compose([
             # Converts a PIL Image or numpy.ndarray (H x W x C) in the range [0, 255] to a torch.FloatTensor of shape (C x H x W) in the range [0.0, 1.0]
-            transforms.ToTensor(),   
+            transforms.ToTensor(),
             # Normalize a tensor image with mean and standard deviation
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))   # input[channel] = (input[channel] - mean[channel]) / std[channel]
+            # input[channel] = (input[channel] - mean[channel]) / std[channel]
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
         ])
 
         img = transform(img).to(self.device)
@@ -53,20 +64,46 @@ class FaceDetector():
 
         return img
 
+    def detect(self, img, min_face_size=20.0, threshold=[0.6, 0.7, 0.8], factor=0.707, nms_threshold=[0.7, 0.7, 0.7]):
+        """[summary]
 
-    def detect(self, img):
+        Arguments:
+            img {[type]} -- an instance of PIL.Image.
+
+        Keyword Arguments:
+            min_face_size {float} -- a float number. (default: {20.0})
+            threshold {list} -- a list of length 3 (default: {[0.6, 0.7, 0.8]})
+            factor {float} -- [description] (default: {0.707})
+            nms_threshold {list} -- a list of length 3. (default: {[0.7, 0.7, 0.7]})
+
+        Returns:
+            [type] -- [description]
+        """
+
         img = self._preprocess(img)
-        
-        scales = self.create_image_pyramid(img)
 
-        bounding_boxes = self.stage_one(img, scales, self.threshold[0], self.nms_threshold[0])
-        bounding_boxes = self.stage_two(img, bounding_boxes, self.threshold[1], self.nms_threshold[1])
-        bounding_boxes, _ = self.stage_three(img, bounding_boxes, self.threshold[2], self.nms_threshold[2])
+        scales = self.create_image_pyramid(img, min_face_size, factor)
+
+        bounding_boxes = self.stage_one(
+            img, scales, threshold[0], nms_threshold[0])
+        bounding_boxes = self.stage_two(
+            img, bounding_boxes, threshold[1], nms_threshold[1])
+        bounding_boxes, _ = self.stage_three(
+            img, bounding_boxes, threshold[2], nms_threshold[2])
 
         return bounding_boxes
 
+    def create_image_pyramid(self, img, min_face_size, factor):
+        """BUILD AN IMAGE PYRAMID
 
-    def create_image_pyramid(self, img):
+        Arguments:
+            img {[type]} -- a float tensor of shape [1, C, H, W] in the range [0.0, 1.0]
+            min_face_size {[type]} -- [description]
+            factor {[type]} -- [description]
+
+        Returns:
+            [type] -- [description]
+        """
         _, _, height, width = img.shape
         min_length = min(height, width)
 
@@ -78,33 +115,33 @@ class FaceDetector():
         # scales the image so that
         # minimum size that we can detect equals to
         # minimum face size that we want to detect
-        m = min_detection_size/self.min_face_size
+        m = min_detection_size/min_face_size
         min_length *= m
 
         factor_count = 0
         while min_length > min_detection_size:
-            scales.append(m*self.factor**factor_count)   # TBD need to optimize here
-            min_length *= self.factor
+            scales.append(m*factor**factor_count)   # TBD need to optimize here
+            min_length *= factor
             factor_count += 1
 
         return scales
-    
 
     def _generate_bboxes(self, cls_probs, offsets, scale, threshold):
         """Generate bounding boxes at places
-        
+
         Arguments:
             cls_probs {[type]} -- a float tensor of shape [1, 2, n, m].
             offsets {[type]} -- a float tensor of shape [1, 4, n, m].
             scale {[type]} -- a float number, 
                 width and height of the image were scaled by this number.
             threshold {[type]} -- a float number.
-        
+
         Returns:
             bounding_boxes {} -- a float tensor of shape [n_boxes, 4]
-            scores
-            offsets
+            scores {} -- a float tensor of shape [n_boxes]
+            offsets {} -- a float tensor of shape [n_boxes, 4]
         """
+
         # applying P-Net is equivalent, in some sense, to
         # moving 12x12 window with stride 2
         stride = 2
@@ -120,7 +157,8 @@ class FaceDetector():
             return torch.empty((0, 4), device=self.device), torch.empty((0), device=self.device), torch.empty((0, 4), device=self.device)
 
         # transformations of bounding boxes
-        tx1, ty1, tx2, ty2 = [offsets[0, i, inds[:, 0], inds[:, 1]] for i in range(4)]
+        tx1, ty1, tx2, ty2 = [
+            offsets[0, i, inds[:, 0], inds[:, 1]] for i in range(4)]
         # they are defined as:
         # x1 = x * stride / scale
         # y1 = y * stride / scale
@@ -144,39 +182,53 @@ class FaceDetector():
             (stride * inds[:, 1] + 1.0 + cell_size),
             (stride * inds[:, 0] + 1.0 + cell_size),
         ]).transpose(0, 1).float()
-
+        # why one is added?
         bounding_boxes = bounding_boxes / scale
 
         return bounding_boxes, scores, offsets
 
-
     def _refine_boxes(self, bboxes, height, width):
-        bboxes = torch.max(torch.zeros_like(bboxes, device=self.device), bboxes)
-        sizes = torch.tensor([[width, height, width, height]] * bboxes.shape[0], dtype=torch.float32, device=self.device)
+        bboxes = torch.max(torch.zeros_like(
+            bboxes, device=self.device), bboxes)
+        sizes = torch.tensor([[width, height, width, height]] *
+                             bboxes.shape[0], dtype=torch.float32, device=self.device)
         bboxes = torch.min(bboxes, sizes)
-        
+
         return bboxes
 
-
     def _get_image_boxes(self, bboxes, img, size=24):
+        """[summary]
+
+        Arguments:
+            bboxes {[type]} -- a float tensor of shape [n, 4].
+            img {[type]} -- a float tensor of shape [1, C, H, W] in the range [0.0, 1.0]
+
+        Keyword Arguments:
+            size {int} -- an integer, size of cutouts. (default: {24})
+
+        Returns:
+            [type] -- a float tensor of shape [n, 3, size, size].
+        """
+
         _, _, height, width = img.shape
         bboxes = self._refine_boxes(bboxes, height, width)
-    
+
         img_boxes = []
 
         for box in bboxes:
-            im  = img[:, :, box[1].int(): box[3].int(), box[0].int(): box[2].int()]
-            im = F.interpolate(im, size=(size, size), mode='bilinear', align_corners=False)
+            im = img[:, :, box[1].int(): box[3].int(),
+                     box[0].int(): box[2].int()]
+            im = F.interpolate(im, size=(size, size),
+                               mode='bilinear', align_corners=False)
             img_boxes.append(im)
 
         img_boxes = torch.cat(img_boxes, 0)
 
         return img_boxes
 
-
     def _convert_to_square(self, bboxes):
         """Convert bounding boxes to a square form.
-        
+
         Arguments:
             bboxes {torch.float32} -- a float tensor of shape [n, 4]
 
@@ -197,13 +249,16 @@ class FaceDetector():
 
         return square_bboxes
 
-
     def _calibrate_box(self, bboxes, offsets):
-        """[summary]
-        
+        """Transform bounding boxes to be more like true bounding boxes.
+        'offsets' is one of the outputs of the nets.
+
         Arguments:
-            bboxes {[type]} -- [description]
-            offsets {[type]} -- [description]
+            bboxes {[type]} -- a float tensor of shape [n, 4].
+            offsets {[type]} -- a float tensor of shape [n, 4].
+
+        Returns:
+            [type] -- a float tensor of shape [n, 4].
         """
         x1, y1, x2, y2 = [bboxes[:, i] for i in range(4)]
         w = x2 - x1 + 1.0
@@ -225,54 +280,73 @@ class FaceDetector():
         bboxes = bboxes + translation
         return bboxes
 
+    @_no_grad
     def stage_one(self, img, scales, threshold, nms_threshold):
-        """[summary]
-        
+        """Run P-Net, generate bounding boxes, and do NMS.
+
         Arguments:
-            img {[type]} -- [description]
-            scales {[type]} -- [description]
-            threshold {[type]} -- [description]
+            img {[type]} -- a float tensor of shape [1, C, H, W] in the range [0.0, 1.0]
+            scales {[type]} -- a float list,
+                scale width and height of the image by this number.
+            threshold {[type]} -- a float number,
+                threshold on the probability of a face when generating
+                bounding boxes from predictions of the net.
+            nms_threshold {[type]} -- [description]
+
+        Returns:
+            candidate_boxes {[type]} -- a float tensor of shape [n_boxes, 4]
         """
+
         candidate_boxes = torch.empty((0, 4), device=self.device)
         candidate_scores = torch.empty((0), device=self.device)
         candidate_offsets = torch.empty((0, 4), device=self.device)
 
+        # scale the image
         for scale in scales:
             _, _, height, width = img.shape
             sh, sw = math.ceil(height * scale), math.ceil(width * scale)
-            resize_img = F.interpolate(img, size=(sh, sw), mode='bilinear', align_corners=False)
+            resize_img = F.interpolate(img, size=(
+                sh, sw), mode='bilinear', align_corners=False)
 
+            # cls_probs: probability of a face at each sliding window
+            # offsets: transformations to true bounding boxes
             cls_probs, offsets = self.pnet(resize_img)
 
-            bboxes, scores, offsets = self._generate_bboxes(cls_probs, offsets, scale, threshold)
-        
+            bboxes, scores, offsets = self._generate_bboxes(
+                cls_probs, offsets, scale, threshold)
+
             candidate_boxes = torch.cat((candidate_boxes, bboxes))
             candidate_scores = torch.cat((candidate_scores, scores))
             candidate_offsets = torch.cat((candidate_offsets, offsets))
 
-        keep = torchvision.ops.nms(candidate_boxes, candidate_scores, iou_threshold=nms_threshold)
+        keep = torchvision.ops.nms(
+            candidate_boxes, candidate_scores, iou_threshold=nms_threshold)
         candidate_boxes = candidate_boxes[keep]
         candidate_scores = candidate_scores[keep]
         candidate_offsets = candidate_offsets[keep]
 
         # use offsets predicted by pnet to transform bounding boxes
-        candidate_boxes = self._calibrate_box(candidate_boxes, candidate_offsets)
+        candidate_boxes = self._calibrate_box(
+            candidate_boxes, candidate_offsets)
 
         candidate_boxes = self._convert_to_square(candidate_boxes)
 
         return candidate_boxes
-    
 
+    @_no_grad
     def stage_two(self, img, bboxes, threshold, nms_threshold):
-        """[summary]
-        
+        """Run R-Net, generate bounding boxes, and do NMS.
+
         Arguments:
-            img {[type]} -- [description]
+            img {[type]} -- a float tensor of shape [1, C, H, W] in the range [0.0, 1.0]
             bboxes {[type]} -- [description]
             threshold {[type]} -- [description]
             nms_threshold {[type]} -- [description]
+
+        Returns:
+            [type] -- [description]
         """
-        print(bboxes.shape)
+
         # no candidate face found.
         if bboxes.shape[0] == 0:
             return bboxes
@@ -297,16 +371,23 @@ class FaceDetector():
         bboxes = self._calibrate_box(bboxes, offsets)
         bboxes = self._convert_to_square(bboxes)
 
-        print(bboxes.shape)
-
         return bboxes
 
-
+    @_no_grad
     def stage_three(self, img, bboxes, threshold, nms_threshold):
+        """Run O-Net, generate bounding boxes, and do NMS.
+
+        Arguments:
+            img {[type]} -- a float tensor of shape [1, C, H, W] in the range [0.0, 1.0]
+            bboxes {[type]} -- [description]
+            threshold {[type]} -- [description]
+            nms_threshold {[type]} -- [description]
+
+        Returns:
+            [type] -- [description]
+        """
         if bboxes.shape[0] == 0:
             return bboxes, torch.empty(0, device=self.device)
-
-        print(bboxes.shape)
 
         img_boxes = self._get_image_boxes(bboxes, img, size=48)
         cls_probs, offsets, landmarks = self.onet(img_boxes)
@@ -316,22 +397,22 @@ class FaceDetector():
         bboxes = bboxes[keep]
         offsets = offsets[keep]
         scores = scores[keep]
+        landmarks = landmarks[keep]
 
         if bboxes.shape[0] == 0:
-            return bboxes, torch.empty(0, device=self.device)
+            return bboxes, torch.empty(0, device=self.device)   # TBD
 
-        print(bboxes.shape)
+        # compute landmark points
+        # TBD
 
         bboxes = self._calibrate_box(bboxes, offsets)
         keep = torchvision.ops.nms(bboxes, scores, iou_threshold=nms_threshold)
         bboxes = bboxes[keep]
         offsets = offsets[keep]
 
-        print(bboxes.shape)
         return bboxes, torch.empty(0, device=self.device)
 
-
-if __name__ == "__main__":
+if __name__ == '__main__':
+    img = Image.open('../asset/office1.jpg')
     detector = FaceDetector()
-    image = Image.open('../asset/office5.jpg')
-    bounding_boxes = detector.detect(image)
+    bounding_boxes = detector.detect(img)

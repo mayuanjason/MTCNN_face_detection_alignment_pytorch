@@ -20,7 +20,6 @@ def _no_grad(func):
         
     return wrapper
 
-
 class FaceDetector():
 
     def __init__(self):
@@ -40,11 +39,11 @@ class FaceDetector():
         """Preprocessing step before feeding the network.
 
         Arguments:
-            img {[type]} -- a PIL.Image images of range [0, 1] 
+            img {PIL.Image} -- an instance of PIL.Image. 
                             or an image path
 
         Returns:
-            [type] -- a float tensor of shape [1, C, H, W] in the range [0.0, 1.0]
+            {torch.float32} -- a float tensor of shape [1, C, H, W] in the range [-1.0, 1.0]
         """
 
         if isinstance(img, str):
@@ -97,12 +96,12 @@ class FaceDetector():
         """BUILD AN IMAGE PYRAMID
 
         Arguments:
-            img {[type]} -- a float tensor of shape [1, C, H, W] in the range [0.0, 1.0]
-            min_face_size {[type]} -- [description]
-            factor {[type]} -- [description]
+            img {torch.float32} -- a float tensor of shape [1, C, H, W] in the range [-1.0, 1.0]
+            min_face_size {float} -- [description]
+            factor {float} -- [description]
 
         Returns:
-            [type] -- [description]
+            {list} -- [description]
         """
         _, _, height, width = img.shape
         min_length = min(height, width)
@@ -200,14 +199,14 @@ class FaceDetector():
         """[summary]
 
         Arguments:
-            bboxes {[type]} -- a float tensor of shape [n, 4].
-            img {[type]} -- a float tensor of shape [1, C, H, W] in the range [0.0, 1.0]
+            bboxes {torch.float32} -- a float tensor of shape [n, 4].
+            img {torch.float32} -- a float tensor of shape [1, C, H, W] in the range [-1.0, 1.0]
 
         Keyword Arguments:
             size {int} -- an integer, size of cutouts. (default: {24})
 
         Returns:
-            [type] -- a float tensor of shape [n, 3, size, size].
+            {torch.float32} -- a float tensor of shape [n, 3, size, size].
         """
 
         _, _, height, width = img.shape
@@ -254,11 +253,11 @@ class FaceDetector():
         'offsets' is one of the outputs of the nets.
 
         Arguments:
-            bboxes {[type]} -- a float tensor of shape [n, 4].
-            offsets {[type]} -- a float tensor of shape [n, 4].
+            bboxes {torch.float32} -- a float tensor of shape [n, 4].
+            offsets {torch.float32} -- a float tensor of shape [n, 4].
 
         Returns:
-            [type] -- a float tensor of shape [n, 4].
+            {torch.float32} -- a float tensor of shape [n, 4].
         """
         x1, y1, x2, y2 = [bboxes[:, i] for i in range(4)]
         w = x2 - x1 + 1.0
@@ -278,6 +277,7 @@ class FaceDetector():
         # x1 < x2 and y1 < y2 ?
         translation = torch.cat([w, h, w, h], dim=1) * offsets
         bboxes = bboxes + translation
+
         return bboxes
 
     @_no_grad
@@ -285,16 +285,16 @@ class FaceDetector():
         """Run P-Net, generate bounding boxes, and do NMS.
 
         Arguments:
-            img {[type]} -- a float tensor of shape [1, C, H, W] in the range [0.0, 1.0]
-            scales {[type]} -- a float list,
+            img {torch.float32} -- a float tensor of shape [1, C, H, W] in the range [-1.0, 1.0]
+            scales {list} -- a float list,
                 scale width and height of the image by this number.
-            threshold {[type]} -- a float number,
+            threshold {float} -- a float number,
                 threshold on the probability of a face when generating
                 bounding boxes from predictions of the net.
-            nms_threshold {[type]} -- [description]
+            nms_threshold {float} -- [description]
 
         Returns:
-            candidate_boxes {[type]} -- a float tensor of shape [n_boxes, 4]
+            candidate_boxes {torch.float32} -- a float tensor of shape [n_boxes, 4]
         """
 
         candidate_boxes = torch.empty((0, 4), device=self.device)
@@ -338,13 +338,13 @@ class FaceDetector():
         """Run R-Net, generate bounding boxes, and do NMS.
 
         Arguments:
-            img {[type]} -- a float tensor of shape [1, C, H, W] in the range [0.0, 1.0]
-            bboxes {[type]} -- [description]
-            threshold {[type]} -- [description]
-            nms_threshold {[type]} -- [description]
+            img {torch.float32} -- a float tensor of shape [1, C, H, W] in the range [-1.0, 1.0]
+            bboxes {torch.float32} -- [description]
+            threshold {float} -- [description]
+            nms_threshold {float} -- [description]
 
         Returns:
-            [type] -- [description]
+            {torch.float32} -- [description]
         """
 
         # no candidate face found.
@@ -378,13 +378,13 @@ class FaceDetector():
         """Run O-Net, generate bounding boxes, and do NMS.
 
         Arguments:
-            img {[type]} -- a float tensor of shape [1, C, H, W] in the range [0.0, 1.0]
-            bboxes {[type]} -- [description]
-            threshold {[type]} -- [description]
-            nms_threshold {[type]} -- [description]
+            img {torch.float32} -- a float tensor of shape [1, C, H, W] in the range [-1.0, 1.0]
+            bboxes {torch.float32} -- [description]
+            threshold {float} -- [description]
+            nms_threshold {float} -- [description]
 
         Returns:
-            [type] -- [description]
+            {torch.float32} -- [description]
         """
         if bboxes.shape[0] == 0:
             return bboxes, torch.empty(0, device=self.device)

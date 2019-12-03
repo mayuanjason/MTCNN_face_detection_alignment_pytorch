@@ -95,11 +95,11 @@ class PNet(_Net):
         """[summary]
 
         Arguments:
-            x {[type]} -- a float tensor with shape [batch_size, 3, h, w].
+            x {torch.float32} -- a float tensor with shape [batch_size, 3, h, w].
 
         Returns:
-            cls_probs {[type]} -- a float tensor with shape [batch_size, 2, h, w].
-            offsets {[type]} -- a float tensor with shape [batch_size, 4, h, w].
+            cls_probs {torch.float32} -- a float tensor with shape [batch_size, 2, h, w].
+            offsets {torch.float32} -- a float tensor with shape [batch_size, 4, h, w].
         """
 
         feature_map = self.backend(x)
@@ -169,11 +169,11 @@ class RNet(_Net):
         """[summary]
 
         Arguments:
-            x {[type]} -- a float tensor with shape [batch_size, 3, h, w].
+            x {torch.float32} -- a float tensor with shape [batch_size, 3, h, w].
 
         Returns:
-            cls_probs {[type]} -- a float tensor with shape [batch_size, 2].
-            offsets {[type]} -- a float tensor with shape [batch_size, 4].
+            cls_probs {torch.float32} -- a float tensor with shape [batch_size, 2].
+            offsets {torch.float32} -- a float tensor with shape [batch_size, 4].
         """
 
         feature_map = self.backend(x)
@@ -256,12 +256,12 @@ class ONet(_Net):
         """[summary]
 
         Arguments:
-            x {[type]} -- a float tensor with shape [batch_size, 3, h, w].
+            x {torch.float32} -- a float tensor with shape [batch_size, 3, h, w].
 
         Returns:
-            cls_probs {[type]} -- a float tensor with shape [batch_size, 2].
-            offsets {[type]} -- a float tensor with shape [batch_size, 4].
-            landmarks {[type]} -- a float tensor with shape [batch_size, 10].
+            cls_probs {torch.float32} -- a float tensor with shape [batch_size, 2].
+            offsets {torch.float32} -- a float tensor with shape [batch_size, 4].
+            landmarks {torch.float32} -- a float tensor with shape [batch_size, 10].
         """
 
         feature_map = self.backend(x)

@@ -5,7 +5,6 @@ sys.path.append(os.pardir)
 from src.utils import try_gpu, set_figsize, show_bboxes
 from src.models import PNet, RNet, ONet
 import math
-import matplotlib.pyplot as plt
 from PIL import Image
 import torchvision.transforms as transforms
 import torchvision

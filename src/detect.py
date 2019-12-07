@@ -413,6 +413,6 @@ class FaceDetector():
         return bboxes, torch.empty(0, device=self.device)
 
 if __name__ == '__main__':
-    img = Image.open('../asset/office1.jpg')
+    img = Image.open('../assets/office1.jpg')
     detector = FaceDetector()
     bounding_boxes = detector.detect(img)

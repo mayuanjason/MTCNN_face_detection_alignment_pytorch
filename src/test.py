@@ -4,7 +4,6 @@ import os
 sys.path.append(os.pardir)
 from importlib import import_module
 import cv2
-import numpy as np
 from src.detect import FaceDetector
 
 # import camera driver
@@ -16,7 +15,6 @@ else:
 
 if __name__ == "__main__":
     detector = FaceDetector()
-    
     
     while True:
         frame = Camera().get_frame()

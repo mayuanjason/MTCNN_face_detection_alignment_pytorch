@@ -36,12 +36,7 @@ So I create this project and make some improvments:
    (face_detection)# conda install jupyter notebook
    ```
 
-5. Install matplotlib
-   ```
-   (face_detection)# conda install matplotlib
-   ```
-
-6. Install `opencv`
+5. Install `opencv`
    ```
    (face_detection)# pip install opencv-python
    ```
